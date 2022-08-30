@@ -676,6 +676,9 @@ class Closure : public HeapObject {
 };
 
 HeapObject* Heap::copy(HeapObject* obj) {
+  if (obj->isForwarded()) {
+    signal_error("should not Heap::copy forwarded object", nullptr);
+  }
   size_t size;
   switch (obj->kind()) {
 #define COMPUTE_SIZE(name, Name)                                               \
