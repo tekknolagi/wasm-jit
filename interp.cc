@@ -815,23 +815,19 @@ EXPORT("freeBytes")
 void freeBytes(void* ptr) { free(ptr); }
 #else
 int main(int argc, char* argv[]) {
-  if (argc != 2) {
-    fprintf(stderr, "usage: %s EXPR\n", argv[0]);
+  if (argc != 1) {
+    fprintf(stderr, "usage: %s < FILE\n", argv[0]);
     return 1;
   }
-  std::unique_ptr<Expr> expr(std::move(parse(argv[1])));
+  std::string contents;
+  while (!std::feof(stdin)) {
+    char buf[5] = {};
+    int nread = std::fread(buf, 1, (sizeof buf) - 1, stdin);
+    contents += buf;
+  }
+  std::unique_ptr<Expr> expr(std::move(parse(contents.c_str())));
   fprintf(stderr, "expr: %s\n", expr->toString().c_str());
   eval(expr.get(), 1024 * 1024);
-
-  // WasmModule *mod = jitModule();
-  // if (mod) {
-  //   fprintf(stderr, "Writing generated WebAssembly module to %s\n", argv[2]);
-  //   FILE *o = fopen(argv[2], "w");
-  //   fwrite(moduleData(mod), moduleSize(mod), 1, o);
-  //   fclose(o);
-  //   freeModule(mod);
-  // }
-
-  // return 0;
+  return 0;
 }
 #endif
