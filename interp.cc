@@ -56,7 +56,6 @@ std::string n2hexstr(I w, size_t hex_len = sizeof(I) << 1) {
 
 class Func : public Expr {
  public:
-  static const uint32_t kArgCount = 1;
   const std::unique_ptr<Expr> body;
   void* jitCode;
 
@@ -140,13 +139,19 @@ class Literal : public Expr {
 class Call : public Expr {
  public:
   const std::unique_ptr<Expr> func;
-  const std::unique_ptr<Expr> arg;
+  const std::vector<std::unique_ptr<Expr>> args;
 
   std::string toString() const {
-    return "(" + func->toString() + " " + arg->toString() + ")";
+    std::string result = "(" + func->toString();
+    for (const std::unique_ptr<Expr>& arg : args) {
+      result += " " + arg->toString();
+    }
+    result += ")";
+    return result;
   }
 
-  Call(Expr* func, Expr* arg) : Expr(Kind::Call), func(func), arg(arg){};
+  Call(Expr* func, std::vector<std::unique_ptr<Expr>>&& args)
+      : Expr(Kind::Call), func(func), args(std::move(args)){};
 };
 
 class If : public Expr {
@@ -309,13 +314,16 @@ class Parser {
         if (!startsIdentifier()) {
           error("expected an argument for lambda");
         }
-        pushBound(takeIdentifier());
-        skipWhitespace();
-        if (!matchChar(')')) {
-          error("expected just one argument for lambda");
+        int to_pop = 0;
+        while (!matchChar(')')) {
+          pushBound(takeIdentifier());
+          skipWhitespace();
+          to_pop++;
         }
         Expr* body = parseOne();
-        popBound();
+        while (to_pop--) {
+          popBound();
+        }
         ret = new Func(body);
       } else if (matchKeyword("letrec")) {
         skipWhitespace();
@@ -361,8 +369,12 @@ class Parser {
       } else {
         // Otherwise it's a call.
         Expr* func = parseOne();
-        Expr* arg = parseOne();
-        ret = new Call(func, arg);
+        std::vector<std::unique_ptr<Expr>> args;
+        while (!matchChar(')')) {
+          args.emplace_back(parseOne());
+          skipWhitespace();
+        }
+        return new Call(func, std::move(args));
       }
       skipWhitespace();
       if (!matchChar(')')) {
@@ -763,16 +775,20 @@ tail:
       if (!func.get().isClosure()) {
         signal_error("call expected closure, got", func.get().kindName());
       }
-      Rooted<Value> arg(heap, eval(call->arg.get(), env.get(), heap));
       Closure* closure = func.get().asClosure();
-      Rooted<Env> closure_env(heap, closure->env);
-      Env* call_env = new (heap) Env(closure_env, arg);
+      Rooted<Env> call_env(heap, closure->env);
+      for (const std::unique_ptr<Expr>& arg : call->args) {
+        // TODO(max): Hoist handle out of loop
+        Rooted<Value> arg_val(heap, eval(arg.get(), env.get(), heap));
+        Env* new_call_env = new (heap) Env(call_env, arg_val);
+        call_env.set(new_call_env);
+      }
       if (closure->func->jitCode) {
         JitFunction f = reinterpret_cast<JitFunction>(closure->func->jitCode);
-        return f(call_env, &heap);
+        return f(call_env.get(), &heap);
       }
       expr = closure->func->body.get();
-      env.set(call_env);
+      env.set(call_env.get());
       goto tail;
     }
     case Expr::Kind::LetRec: {
