@@ -322,6 +322,7 @@ class Parser {
         if (!matchChar('(')) {
           error("expected open paren after letrec");
         }
+        skipWhitespace();
         if (!matchChar('(')) {
           error("expected two open parens after letrec");
         }
