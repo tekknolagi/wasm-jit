@@ -311,9 +311,6 @@ class Parser {
           error("expected open paren after lambda");
         }
         skipWhitespace();
-        if (!startsIdentifier()) {
-          error("expected an argument for lambda");
-        }
         int to_pop = 0;
         while (!matchChar(')')) {
           pushBound(takeIdentifier());
@@ -848,6 +845,18 @@ int main(int argc, char* argv[]) {
     const char* program;
     intptr_t expected;
   } tests[] = {
+      // Literals
+      {"123", 123},
+      // Primitives
+      {"(+ 3 4)", 7},
+      // Let bindings and symbol lookup
+      {"(letrec ((a 123)) a)", 123},
+      // Let shadowing
+      {"(letrec ((a 123)) (letrec ((a 456)) a))", 456},
+      // No-parameter functions
+      {"(letrec ((const (lambda () 3))) (const))", 3},
+      // Single-parameter functions
+      {"(letrec ((inc (lambda (x) (+ 1 x)))) (inc 3))", 4},
       // Recursion
       {"(letrec ("
        "         (fac (lambda (x)"
