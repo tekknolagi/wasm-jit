@@ -818,10 +818,23 @@ tail:
 }
 
 EXPORT("eval")
-void eval(Expr* expr, size_t heap_size) {
+Value eval(Expr* expr, size_t heap_size) {
   Heap heap(heap_size);
-  Value res = eval(expr, nullptr, heap);
-  fprintf(stdout, "result: %zu\n", res.getSmi());
+  return eval(expr, /*unrooted_env=*/nullptr, heap);
+}
+
+char assertEqual(const char* program, size_t heap_size, intptr_t expected) {
+  std::unique_ptr<Expr> expr(std::move(parse(program)));
+  Value result = eval(expr.get(), heap_size);
+  if (!result.isSmi()) {
+    fprintf(stderr, "Expected integer but got %s\n", result.kindName());
+    return 'F';
+  }
+  if (result.getSmi() != expected) {
+    fprintf(stderr, "Expected %d but got %d\n", expected, result.getSmi());
+    return 'F';
+  }
+  return '.';
 }
 
 #ifdef LIBRARY
@@ -831,19 +844,33 @@ EXPORT("freeBytes")
 void freeBytes(void* ptr) { free(ptr); }
 #else
 int main(int argc, char* argv[]) {
-  if (argc != 1) {
-    fprintf(stderr, "usage: %s < FILE\n", argv[0]);
-    return 1;
+  struct {
+    const char* program;
+    intptr_t expected;
+  } tests[] = {
+      // Recursion
+      {"(letrec ("
+       "         (fac (lambda (x)"
+       "                (if (< x 2)"
+       "                  x"
+       "                  (* x (fac (- x 1))))))"
+       "         )"
+       "  (fac 5))",
+       120},
+      // Multiple parameters
+      {"(letrec ("
+       "         (add (lambda (x y)"
+       "                (+ x y)))"
+       "         )"
+       "  (add 3 4))",
+       7},
+      {nullptr, 0},
+  };
+  fprintf(stdout, "Running tests ");
+  for (size_t i = 0; tests[i].program != nullptr; i++) {
+    fputc(assertEqual(tests[i].program, /*heap_size=*/1024, tests[i].expected),
+          stdout);
   }
-  std::string contents;
-  while (!std::feof(stdin)) {
-    char buf[5] = {};
-    int nread = std::fread(buf, 1, (sizeof buf) - 1, stdin);
-    contents += buf;
-  }
-  std::unique_ptr<Expr> expr(std::move(parse(contents.c_str())));
-  fprintf(stderr, "expr: %s\n", expr->toString().c_str());
-  eval(expr.get(), 1024 * 1024);
-  return 0;
+  fprintf(stdout, "\n");
 }
 #endif
