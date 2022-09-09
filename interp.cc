@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <cassert>
 #include <cstdint>
 #include <cassert>
 #include <cstring>
@@ -605,6 +606,13 @@ class Value {
     return isSmi() ? "small integer" : getHeapObject()->kindName();
   }
 
+  std::string toString() const {
+    if (!isSmi()) {
+      return "env/clo";
+    }
+    return "(smi " + std::to_string(getSmi()) + ")";
+  }
+
 #define DEFINE_METHODS(name, Name)                                             \
   bool is##Name() { return isHeapObject() && getHeapObject()->is##Name(); }    \
   Name* as##Name() { return getHeapObject()->as##Name(); }
@@ -666,6 +674,11 @@ class Env : public HeapObject {
 
   Env(Rooted<Env>& prev, Rooted<Value>& val)
       : HeapObject(Kind::Env), prev(prev.get()), val(val.get()) {}
+
+  std::string toString(int depth = 0) const {
+    return "(env " + std::to_string(depth) + ":" + val.toString() +
+           (prev == nullptr ? ")" : (" " + prev->toString(depth + 1) + ")"));
+  }
 
   size_t byteSize() { return sizeof(*this); }
   void visitFields(Heap& heap) {
@@ -802,19 +815,20 @@ tail:
       if (!func.get().isClosure()) {
         signal_error("call expected closure, got", func.get().kindName());
       }
-      Closure* closure = func.get().asClosure();
-      Rooted<Env> call_env(heap, closure->env);
+      Rooted<Closure> closure(heap, func.get().asClosure());
+      Rooted<Env> call_env(heap, closure.get()->env);
       for (const std::unique_ptr<Expr>& arg : call->args) {
         // TODO(max): Hoist handle out of loop
         Rooted<Value> arg_val(heap, eval(arg.get(), env.get(), heap));
         Env* new_call_env = new (heap) Env(call_env, arg_val);
         call_env.set(new_call_env);
       }
-      if (closure->func->jitCode) {
-        JitFunction f = reinterpret_cast<JitFunction>(closure->func->jitCode);
+      if (closure.get()->func->jitCode) {
+        JitFunction f =
+            reinterpret_cast<JitFunction>(closure.get()->func->jitCode);
         return f(call_env.get(), &heap);
       }
-      expr = closure->func->body.get();
+      expr = closure.get()->func->body.get();
       env.set(call_env.get());
       goto tail;
     }
@@ -822,15 +836,17 @@ tail:
       LetRec* letrec = static_cast<LetRec*>(expr);
       Rooted<Env> let_env(heap, env.get());
       for (const std::unique_ptr<Expr>& arg : letrec->args) {
-        // TODO(max): Hoist handle out of loop
-        Rooted<Value> arg_val(heap, eval(arg.get(), env.get(), heap));
+        // TODO(max): Hoist handles out of loop
+        Rooted<Value> filler(heap, Value(intptr_t(0)));
+        Rooted<Env> arg_env(heap, new (heap) Env(env, filler));
+        Rooted<Value> arg_val(heap, eval(arg.get(), arg_env.get(), heap));
         Rooted<Env> new_let_env(heap, new (heap) Env(let_env, arg_val));
+        arg_env.get()->val = arg_val.get();
         let_env.set(new_let_env.get());
       }
-      return eval(letrec->body.get(), let_env.get(), heap);
-      // env.set(let_env.get());
-      // expr = letrec->body.get();
-      // goto tail;
+      env.set(let_env.get());
+      expr = letrec->body.get();
+      goto tail;
     }
     case Expr::Kind::If: {
       If* ifexpr = static_cast<If*>(expr);
@@ -919,12 +935,12 @@ int main(int argc, char* argv[]) {
        7},
       {nullptr, 0},
   };
-  fprintf(stdout, "Running tests ");
+  fprintf(stderr, "Running tests ");
   for (size_t i = 0; tests[i].program != nullptr; i++) {
   fprintf(stderr, "---\n");
     fputc(assertEqual(tests[i].program, /*heap_size=*/1024, tests[i].expected),
-          stdout);
+          stderr);
   }
-  fprintf(stdout, "\n");
+  fprintf(stderr, "\n");
 }
 #endif
