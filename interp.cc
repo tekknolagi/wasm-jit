@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include <cstdint>
+#include <cassert>
 #include <cstring>
 #include <memory>
 #include <set>
@@ -181,11 +182,19 @@ class If : public Expr {
 class Parser {
   std::vector<std::string> boundVars;
 
-  void pushBound(std::string&& id) { boundVars.push_back(id); }
-  void popBound() { boundVars.pop_back(); }
+  void pushBound(std::string&& id) {
+    boundVars.push_back(id);
+          fprintf(stderr, "pushed %s\n", boundVars.at(boundVars.size() - 1).c_str());
+  }
+  void popBound() {
+          fprintf(stderr, "popped %s\n", boundVars.at(boundVars.size() - 1).c_str());
+    boundVars.pop_back();
+  }
   uint32_t lookupBound(const std::string& id) {
+      fprintf(stderr, "... looking up %s ... ", id.c_str());
     for (size_t i = 0; i < boundVars.size(); i++) {
       if (boundVars[boundVars.size() - i - 1] == id) {
+        fprintf(stderr, "found at %lu\n", i);
         return i;
       }
     }
@@ -665,6 +674,7 @@ class Env : public HeapObject {
   }
 
   static Value lookup(Env* env, uint32_t depth) {
+    fprintf(stderr, "(runtime) looking up %u\n", depth);
     while (depth--) {
       if (env == nullptr) {
         signal_error("Invalid depth -- too deep",
@@ -672,6 +682,7 @@ class Env : public HeapObject {
       }
       env = env->prev;
     }
+    assert(env != nullptr);
     return env->val;
   }
 };
@@ -885,6 +896,11 @@ int main(int argc, char* argv[]) {
       {"(letrec ((const (lambda () 3))) (const))", 3},
       // Single-parameter functions
       {"(letrec ((inc (lambda (x) (+ 1 x)))) (inc 3))", 4},
+      // Multiple-parameter functions
+      {"(letrec ((sub (lambda (a b) (- b a)))) (sub 4 3))", -1},
+      {"(letrec ((sub (lambda (a b) (- a b)))) (sub 4 3))", 1},
+      {"(letrec ((sub (lambda (b a) (- b a)))) (sub 4 3))", 1},
+      {"(letrec ((sub (lambda (b a) (- a b)))) (sub 4 3))", -1},
       // Recursion
       {"(letrec ("
        "         (fac (lambda (x)"
@@ -905,6 +921,7 @@ int main(int argc, char* argv[]) {
   };
   fprintf(stdout, "Running tests ");
   for (size_t i = 0; tests[i].program != nullptr; i++) {
+  fprintf(stderr, "---\n");
     fputc(assertEqual(tests[i].program, /*heap_size=*/1024, tests[i].expected),
           stdout);
   }
