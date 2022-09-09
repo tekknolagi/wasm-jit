@@ -852,6 +852,8 @@ int main(int argc, char* argv[]) {
       {"123", 123},
       // Primitives
       {"(+ 3 4)", 7},
+      // Recursive eval
+      {"(+ (+ 1 2) (- 7 3))", 7},
       // Let bindings and symbol lookup
       {"(letrec ((a 123)) a)", 123},
       // Let shadowing
