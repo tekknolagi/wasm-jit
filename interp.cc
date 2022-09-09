@@ -831,7 +831,7 @@ char assertEqual(const char* program, size_t heap_size, intptr_t expected) {
     return 'F';
   }
   if (result.getSmi() != expected) {
-    fprintf(stderr, "Expected %d but got %d\n", expected, result.getSmi());
+    fprintf(stderr, "Expected %ld but got %ld\n", expected, result.getSmi());
     return 'F';
   }
   return '.';
