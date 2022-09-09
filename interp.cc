@@ -72,17 +72,23 @@ class Func : public Expr {
   explicit Func(Expr* body) : Expr(Kind::Func), body(body), jitCode(nullptr) {}
 };
 
+// letrec is a bit of a misnomer; it is actually normal let
 class LetRec : public Expr {
  public:
-  static const uint32_t kArgCount = 1;
-  const std::unique_ptr<Expr> arg;
+  const std::vector<std::unique_ptr<Expr>> args;
   const std::unique_ptr<Expr> body;
 
   std::string toString() const {
-    return "(letrec " + arg->toString() + " " + body->toString() + ")";
+    std::string result = "(letrec";
+    for (size_t i = 0; i < args.size(); i++) {
+      result += " " + args[i]->toString();
+    }
+    result += " " + body->toString() + ")";
+    return result;
   }
 
-  LetRec(Expr* arg, Expr* body) : Expr(Kind::LetRec), arg(arg), body(body) {}
+  LetRec(std::vector<std::unique_ptr<Expr>>&& args, Expr* body)
+      : Expr(Kind::LetRec), args(std::move(args)), body(body) {}
 };
 
 class Var : public Expr {
@@ -327,27 +333,33 @@ class Parser {
         if (!matchChar('(')) {
           error("expected open paren after letrec");
         }
-        skipWhitespace();
-        if (!matchChar('(')) {
-          error("expected two open parens after letrec");
+        int to_pop = 0;
+        std::vector<std::unique_ptr<Expr>> args;
+        while (!matchChar(')')) {
+          skipWhitespace();
+          if (!matchChar('(')) {
+            error("expected open paren in letrec binding");
+          }
+          skipWhitespace();
+          if (!startsIdentifier()) {
+            error("expected an identifier for letrec");
+          }
+          pushBound(takeIdentifier());
+          skipWhitespace();
+          args.emplace_back(parseOne());
+          skipWhitespace();
+          if (!matchChar(')')) {
+            error("expected close paren in letrec binding");
+          }
+          skipWhitespace();
+          to_pop++;
         }
         skipWhitespace();
-        if (!startsIdentifier()) {
-          error("expected an identifier for letrec");
-        }
-        pushBound(takeIdentifier());
-        skipWhitespace();
-        Expr* arg = parseOne();
-        if (!matchChar(')')) {
-          error("expected close paren after letrec binding");
-        }
-        skipWhitespace();
-        if (!matchChar(')')) {
-          error("expected just one binding for letrec");
-        }
         Expr* body = parseOne();
-        popBound();
-        ret = new LetRec(arg, body);
+        while (to_pop--) {
+          popBound();
+        }
+        ret = new LetRec(std::move(args), body);
       } else if (matchKeyword("+")) {
         ret = parsePrim(Prim::Op::Add);
       } else if (matchKeyword("-")) {
@@ -654,6 +666,10 @@ class Env : public HeapObject {
 
   static Value lookup(Env* env, uint32_t depth) {
     while (depth--) {
+      if (env == nullptr) {
+        signal_error("Invalid depth -- too deep",
+                     std::to_string(depth).c_str());
+      }
       env = env->prev;
     }
     return env->val;
@@ -793,14 +809,17 @@ tail:
     }
     case Expr::Kind::LetRec: {
       LetRec* letrec = static_cast<LetRec*>(expr);
-      {
-        Rooted<Value> filler(heap, Value(intptr_t(0)));
-        env.set(new (heap) Env(env, filler));
+      Rooted<Env> let_env(heap, env.get());
+      for (const std::unique_ptr<Expr>& arg : letrec->args) {
+        // TODO(max): Hoist handle out of loop
+        Rooted<Value> arg_val(heap, eval(arg.get(), env.get(), heap));
+        Rooted<Env> new_let_env(heap, new (heap) Env(let_env, arg_val));
+        let_env.set(new_let_env.get());
       }
-      Value arg = eval(letrec->arg.get(), env.get(), heap);
-      env.get()->val = arg;
-      expr = letrec->body.get();
-      goto tail;
+      return eval(letrec->body.get(), let_env.get(), heap);
+      // env.set(let_env.get());
+      // expr = letrec->body.get();
+      // goto tail;
     }
     case Expr::Kind::If: {
       If* ifexpr = static_cast<If*>(expr);
@@ -858,6 +877,10 @@ int main(int argc, char* argv[]) {
       {"(letrec ((a 123)) a)", 123},
       // Let shadowing
       {"(letrec ((a 123)) (letrec ((a 456)) a))", 456},
+      // Multiple let bindings and symbol lookup
+      {"(letrec ((a 3) (b 4)) (+ a b))", 7},
+      // Let binding order
+      {"(letrec ((a 3) (b 4)) (+ a b))", 7},
       // No-parameter functions
       {"(letrec ((const (lambda () 3))) (const))", 3},
       // Single-parameter functions
