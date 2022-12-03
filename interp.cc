@@ -185,17 +185,13 @@ class Parser {
 
   void pushBound(std::string&& id) {
     boundVars.push_back(id);
-          fprintf(stderr, "pushed %s\n", boundVars.at(boundVars.size() - 1).c_str());
   }
   void popBound() {
-          fprintf(stderr, "popped %s\n", boundVars.at(boundVars.size() - 1).c_str());
     boundVars.pop_back();
   }
   uint32_t lookupBound(const std::string& id) {
-      fprintf(stderr, "... looking up %s ... ", id.c_str());
     for (size_t i = 0; i < boundVars.size(); i++) {
       if (boundVars[boundVars.size() - i - 1] == id) {
-        fprintf(stderr, "found at %lu\n", i);
         return i;
       }
     }
@@ -687,7 +683,6 @@ class Env : public HeapObject {
   }
 
   static Value lookup(Env* env, uint32_t depth) {
-    fprintf(stderr, "(runtime) looking up %u\n", depth);
     while (depth--) {
       if (env == nullptr) {
         signal_error("Invalid depth -- too deep",
@@ -937,7 +932,6 @@ int main(int argc, char* argv[]) {
   };
   fprintf(stderr, "Running tests ");
   for (size_t i = 0; tests[i].program != nullptr; i++) {
-  fprintf(stderr, "---\n");
     fputc(assertEqual(tests[i].program, /*heap_size=*/1024, tests[i].expected),
           stderr);
   }
